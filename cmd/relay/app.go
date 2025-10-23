@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/DGHeroin/relay"
 )
@@ -29,11 +30,13 @@ type LinkConfig struct {
 }
 
 func OpenRelay(src, dst string, enableUDP bool) func() {
-	tcp := relay.NewTCPRelay()
 	stopCh := make(chan struct{})
+
+	tcp := relay.NewTCPRelay()
 	go tcp.Serve(src, dst, stopCh)
 
-	if *u {
+	// Fix: Use function parameter instead of global flag
+	if enableUDP {
 		udp := relay.NewUDPRelay()
 		go udp.Serve(src, dst, stopCh)
 	}
@@ -43,35 +46,55 @@ func OpenRelay(src, dst string, enableUDP bool) func() {
 	}
 }
 
-func ServeConfig(cfg *Config) {
+func ServeConfig(cfg *Config) []func() {
+	cleanups := make([]func(), 0, len(cfg.Configs))
 	for _, c := range cfg.Configs {
-		OpenRelay(c.Src, c.Dst, c.U)
+		cleanup := OpenRelay(c.Src, c.Dst, c.U)
+		cleanups = append(cleanups, cleanup)
 	}
+	return cleanups
 }
 
 func main() {
 	flag.Parse()
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
+	// Fix: Store cleanup functions
+	var cleanups []func()
+
 	if *config != "" {
-		if data, err := os.ReadFile(*config); err != nil {
-			log.Println(err)
+		data, err := os.ReadFile(*config)
+		if err != nil {
+			log.Println("Failed to read config:", err)
 			return
-		} else {
-			cfg := &Config{}
-			if err := json.Unmarshal(data, cfg); err != nil {
-				log.Println(err)
-				return
-			} else {
-				ServeConfig(cfg)
-			}
 		}
+
+		cfg := &Config{}
+		if err := json.Unmarshal(data, cfg); err != nil {
+			log.Println("Failed to parse config:", err)
+			return
+		}
+
+		cleanups = ServeConfig(cfg)
+		log.Printf("Started %d relay(s) from config", len(cleanups))
 	} else {
-		OpenRelay(*local, *remote, *u)
+		cleanup := OpenRelay(*local, *remote, *u)
+		cleanups = append(cleanups, cleanup)
 	}
 
 	stopSig := make(chan os.Signal, 1)
 	signal.Notify(stopSig, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
-	msg := <-stopSig
-	log.Println("exit with", msg)
+	sig := <-stopSig
+	log.Println("Received signal:", sig)
+
+	// Fix: Call cleanup functions for graceful shutdown
+	log.Println("Shutting down relays gracefully...")
+	for i, cleanup := range cleanups {
+		log.Printf("Stopping relay %d/%d", i+1, len(cleanups))
+		cleanup()
+	}
+
+	// Give some time for goroutines to finish
+	time.Sleep(500 * time.Millisecond)
+	log.Println("Shutdown complete")
 }
