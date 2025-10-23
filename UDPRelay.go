@@ -13,15 +13,19 @@ var (
 )
 
 type udpRelay struct {
-	source      string
-	target      string
-	remote      map[string]*packet
-	remoteMu    sync.RWMutex
-	targetAddr  *net.UDPAddr
-	listener    net.PacketConn
-	pktCount    int64
-	idleTimeout time.Duration
-	mtu         int
+	source        string
+	target        string
+	remote        map[string]*packet
+	remoteMu      sync.RWMutex
+	targetAddr    atomic.Value // stores *net.UDPAddr
+	listener      net.PacketConn
+	pktCount      int64
+	idleTimeout   time.Duration
+	mtu           int
+	dnsRefresh    time.Duration
+	failureCount  int64
+	lastDNSUpdate time.Time
+	addrMu        sync.RWMutex
 }
 
 func NewUDPRelay() Relay {
@@ -43,15 +47,15 @@ func (t *udpRelay) Serve(src, dst string, stopCh chan struct{}) error {
 	t.remote = make(map[string]*packet)
 	t.idleTimeout = 5 * time.Minute
 	t.mtu = DefaultMTU
+	t.dnsRefresh = 5 * time.Minute // Refresh DNS every 5 minutes
 
-	// Fix: Cache resolved address
-	rAddr, err := net.ResolveUDPAddr("udp", dst)
-	if err != nil {
+	// Initial DNS resolution
+	if err := t.refreshDNS(); err != nil {
 		return err
 	}
-	t.targetAddr = rAddr
 
-	log.Printf("Serve UDP: %v => %v", src, dst)
+	log.Printf("Serve UDP: %v => %v (resolved to %v)", src, dst, t.getTargetAddr())
+
 	ln, err := net.ListenPacket("udp", src)
 	if err != nil {
 		log.Println(err)
@@ -69,6 +73,9 @@ func (t *udpRelay) Serve(src, dst string, stopCh chan struct{}) error {
 
 	// Fix: Idle connection cleanup
 	go t.cleanupIdle()
+
+	// DNS refresh goroutine
+	go t.dnsRefreshLoop(stopCh)
 
 	buf := make([]byte, t.mtu)
 	for {
@@ -115,17 +122,32 @@ func (t *udpRelay) handlePacket(p *packet) {
 		var remote *net.UDPConn
 		var err error
 
-		// Fix: Use cached address
-		if t.targetAddr.IP.To4() != nil {
-			remote, err = net.DialUDP("udp", nil, t.targetAddr)
+		// Get current target address
+		targetAddr := t.getTargetAddr()
+		if targetAddr.IP.To4() != nil {
+			remote, err = net.DialUDP("udp", nil, targetAddr)
 		} else {
-			remote, err = net.DialUDP("udp6", nil, t.targetAddr)
+			remote, err = net.DialUDP("udp6", nil, targetAddr)
 		}
 		if err != nil {
-			log.Println("DialUDP error:", err)
+			log.Printf("DialUDP error to %v: %v", targetAddr, err)
+
+			// Track failures and trigger DNS refresh if needed
+			failures := atomic.AddInt64(&t.failureCount, 1)
+			if failures >= 3 {
+				log.Printf("Multiple UDP dial failures (%d), triggering DNS refresh", failures)
+				go func() {
+					if err := t.refreshDNS(); err == nil {
+						atomic.StoreInt64(&t.failureCount, 0)
+					}
+				}()
+			}
 			t.die(p)
 			return
 		}
+
+		// Reset failure count on successful dial
+		atomic.StoreInt64(&t.failureCount, 0)
 		p.remote = remote
 
 		// Start reading from remote
@@ -209,4 +231,55 @@ func (t *udpRelay) cleanup() {
 		}
 	}
 	t.remote = make(map[string]*packet)
+}
+
+// refreshDNS re-resolves the target address
+func (t *udpRelay) refreshDNS() error {
+	rAddr, err := net.ResolveUDPAddr("udp", t.target)
+	if err != nil {
+		log.Printf("DNS resolution failed for %s: %v", t.target, err)
+		return err
+	}
+
+	t.addrMu.Lock()
+	oldAddr := t.getTargetAddr()
+	t.targetAddr.Store(rAddr)
+	t.lastDNSUpdate = time.Now()
+	t.addrMu.Unlock()
+
+	if oldAddr == nil || oldAddr.String() != rAddr.String() {
+		log.Printf("DNS updated for %s: %v -> %v", t.target, oldAddr, rAddr)
+	}
+	return nil
+}
+
+// getTargetAddr safely retrieves the current target address
+func (t *udpRelay) getTargetAddr() *net.UDPAddr {
+	if addr := t.targetAddr.Load(); addr != nil {
+		return addr.(*net.UDPAddr)
+	}
+	return nil
+}
+
+// dnsRefreshLoop periodically refreshes DNS
+func (t *udpRelay) dnsRefreshLoop(stopCh chan struct{}) {
+	ticker := time.NewTicker(t.dnsRefresh)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-stopCh:
+			return
+		case <-ticker.C:
+			t.addrMu.RLock()
+			elapsed := time.Since(t.lastDNSUpdate)
+			t.addrMu.RUnlock()
+
+			if elapsed >= t.dnsRefresh {
+				if err := t.refreshDNS(); err == nil {
+					log.Printf("Periodic DNS refresh completed for %s", t.target)
+				}
+			}
+		}
+	}
 }
