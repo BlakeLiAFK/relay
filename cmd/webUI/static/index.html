@@ -3,279 +3,359 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Config Manager</title>
-    <!-- Bootstrap CSS -->
-    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
-
-    <style> 
-    .card-toast {
-        transition: opacity 0.5s ease-in-out;
-        opacity: 0; /* 初始为透明 */
-    }
-
-    .card-toast.show {
-        display: block;
-        opacity: 1;
-    }
+    <title>Relay Manager</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .actions {
+            margin-bottom: 20px;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #0056b3;
+        }
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        .btn-danger:hover {
+            background: #c82333;
+        }
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        .btn-success:hover {
+            background: #218838;
+        }
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        .relay-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .relay-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+        .relay-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        .relay-name {
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .relay-info {
+            color: #666;
+            margin: 5px 0;
+            font-size: 14px;
+        }
+        .relay-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+        .badge-tcp {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        .badge-udp {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+        .relay-actions {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+        .modal.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            max-width: 500px;
+            width: 90%;
+        }
+        .modal-header {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #333;
+        }
+        .form-group input[type="text"] {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .form-group input[type="text"]:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+        .form-check {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .modal-footer {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        .empty {
+            text-align: center;
+            padding: 60px;
+            color: #999;
+        }
     </style>
-
 </head>
 <body>
-<div class="container mt-5">
-    <h2>Relay</h2>
-    <button type="button" class="btn btn-success mb-3" id="addConfigBtn">New</button>
-    <div id="configCards" class="row"></div>
-</div>
+    <div id="app">
+        <div class="container">
+            <h1>🔄 Relay Manager</h1>
 
-<!-- Config Modal -->
-<div class="modal fade" id="configModal" tabindex="-1" aria-labelledby="configModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="configModalLabel">Config</h5>
-                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                    <span aria-hidden="true">&times;</span>
-                </button>
+            <div class="actions">
+                <button class="btn btn-primary" @click="openCreate">➕ New Relay</button>
             </div>
-            <div class="modal-body">
-                <form id="configForm">
-                    <div class="form-group" id='id-group'>
-                        <label for="id">id</label>
-                        <input type="text" class="form-control" id="id" required readonly>
+
+            <div v-if="loading" class="loading">Loading...</div>
+
+            <div v-else-if="relays.length === 0" class="empty">
+                No relays configured. Click "New Relay" to add one.
+            </div>
+
+            <div v-else class="relay-grid">
+                <div v-for="relay in relays" :key="relay.id" class="relay-card">
+                    <div class="relay-name">{{ relay.name }}</div>
+                    <div class="relay-info">📥 Source: {{ relay.src }}</div>
+                    <div class="relay-info">📤 Destination: {{ relay.dst }}</div>
+                    <span class="relay-badge" :class="relay.udp ? 'badge-udp' : 'badge-tcp'">
+                        {{ relay.udp ? 'TCP + UDP' : 'TCP Only' }}
+                    </span>
+                    <div class="relay-actions">
+                        <button class="btn btn-success" @click="openEdit(relay)">✏️ Edit</button>
+                        <button class="btn btn-danger" @click="deleteRelay(relay)">🗑️ Delete</button>
                     </div>
-                    <div class="form-group">
-                        <label for="name">Name</label>
-                        <input type="text" class="form-control" id="name" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="src">Source</label>
-                        <input type="text" class="form-control" id="src" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="dst">Destination</label>
-                        <input type="text" class="form-control" id="dst" required>
-                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal -->
+        <div class="modal" :class="{ active: showModal }">
+            <div class="modal-content">
+                <div class="modal-header">{{ editingRelay ? 'Edit Relay' : 'New Relay' }}</div>
+
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" v-model="form.name" placeholder="e.g., DNS Relay">
+                </div>
+
+                <div class="form-group">
+                    <label>Source (Listen Address)</label>
+                    <input type="text" v-model="form.src" placeholder="e.g., :8080 or 0.0.0.0:8080">
+                </div>
+
+                <div class="form-group">
+                    <label>Destination (Forward To)</label>
+                    <input type="text" v-model="form.dst" placeholder="e.g., example.com:80 or 8.8.8.8:53">
+                </div>
+
+                <div class="form-group">
                     <div class="form-check">
-                        <input type="checkbox" class="form-check-input" id="udp" checked="true">
-                        <label class="form-check-label" for="udp">UDP</label>
+                        <input type="checkbox" id="udp" v-model="form.udp">
+                        <label for="udp">Enable UDP forwarding</label>
                     </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-primary" id="saveConfigBtn">Save Changes</button>
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @click="closeModal">Cancel</button>
+                    <button class="btn btn-primary" @click="saveRelay">Save</button>
+                </div>
             </div>
         </div>
     </div>
-</div>
 
-<!-- Bootstrap JS and dependencies -->
-<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.2/dist/umd/popper.min.js"></script>
-<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <script>
+        const { createApp } = Vue;
 
-<script>
-    var mockConfigs = [
-        { id: 'uuid-1', name:'#1', src: '192.168.0.1:53', dst: '10.0.0.1:53', udp: true },
-        { id: 'uuid-2', name:'#2', src: '192.168.0.2:80', dst: '10.0.0.2:80', udp: false }
-    ];
-
-    document.getElementById('addConfigBtn').addEventListener('click', function() {
-        // Clear form for new config
-        document.getElementById('id-group').style.display = 'none';
-        document.getElementById('configForm').reset();
-        $('#configModal').modal('show');
-    });
-    
-    document.getElementById('saveConfigBtn').addEventListener('click', function() {
-        // Logic to save the config (either update or create new)
-        // This is where you'd typically make an API call
-    
-        // For demonstration, just hide the modal
-        $('#configModal').modal('hide');
-        
-        // Optionally, refresh the list or add to the UI directly if new
-    });
-    
-    // debug数据
-    document.addEventListener('DOMContentLoaded', function() {
-
-    var configCardsContainer = document.getElementById('configCards');
-
-        // demo 
-        // 重新渲染配置列表
-        refreshConfigList();
-
-        // 绑定事件处理函数
-        bindEditButtons();
-        bindDeleteButtons();
-
-        reloadData();
-    });
-
-    document.getElementById('addConfigBtn').addEventListener('click', function() {
-        document.getElementById('configForm').reset();
-        $('#configModal').modal('show');
-    });
-
-    document.getElementById('saveConfigBtn').addEventListener('click', function() {
-        // 获取表单字段的值
-        var id   = document.getElementById('id').value;
-        var name = document.getElementById('name').value;
-        var src  = document.getElementById('src').value;
-        var dst  = document.getElementById('dst').value;
-        var udp  = document.getElementById('udp').checked; // 对于复选框，使用`checked`属性获取是否选中
-
-        // 构建配置对象
-        var config = {
-            id: id,
-            name: name,
-            src: src,
-            dst: dst,
-            udp: udp
-        };
-       
-
-        // 判断是新增还是编辑操作
-        var existingConfigIndex = mockConfigs.findIndex(c => c.id === config.id);
-        if (existingConfigIndex > -1) {
-            // 更新现有配置
-            mockConfigs[existingConfigIndex] = config;
-        } else {
-            // 添加新配置
-            config.id = newUUID()
-            mockConfigs.push(config);
-        }
-
-        // 重新渲染配置列表
-        refreshConfigList();
-        console.log("do save", config, mockConfigs);
-        $('#configModal').modal('hide');
-    });
-
-    // 根据最新的数据刷新UI
-    function refreshConfigList() {
-        var configCardsContainer = document.getElementById('configCards');
-        configCardsContainer.innerHTML = ''; // 清空当前的配置列表
-
-        mockConfigs.forEach(function(config) {
-            var cardHtml = `
-                <div class="col-md-4">
-                    <div class="card mb-4">
-                        <div class="card-body">
-                            <h5 class="card-title">${config.name}</h5>
-                            <p class="card-text">Source: ${config.src}</p>
-                            <p class="card-text">Destination: ${config.dst}</p>
-                            <p class="card-text">UDP: ${config.udp ? 'Yes' : 'No'}</p>
-                            <button class="btn btn-primary edit-config-btn" data-id="${config.id}">Edit</button>
-                            <button class="btn btn-danger delete-config-btn" data-id="${config.id}">Delete</button>
-                        </div>
-                    </div>
-                </div>
-            `;
-            configCardsContainer.insertAdjacentHTML('beforeend', cardHtml);
-        });
-
-        // 需要重新绑定编辑和删除按钮的事件处理函数
-        bindEditButtons();
-        bindDeleteButtons();
-    }
-
-    // 绑定编辑按钮事件的函数
-    function bindEditButtons() {
-        document.querySelectorAll('.edit-config-btn').forEach(function(button) {
-            button.addEventListener('click', function() {
-                
-                var configId = this.getAttribute('data-id');
-                var config = mockConfigs.find(c => c.id == configId);
-                if (config) {
-                    document.getElementById('id').value  = config.id;
-                    document.getElementById('name').value  = config.name;
-                    document.getElementById('src').value = config.src;
-                    document.getElementById('dst').value = config.dst;
-                    document.getElementById('udp').checked = config.udp;
-                    document.getElementById('id-group').style.display = '';
-                    console.log(document.getElementById('id-group'))
-                    $('#configModal').modal('show');
-                }
-            });
-        });
-    
-    }
-
-    // 绑定删除按钮事件的函数
-    function bindDeleteButtons() {
-        document.querySelectorAll('.delete-config-btn').forEach(function(button) {
-            button.addEventListener('click', function() {
-                var configId = this.getAttribute('data-id');
-                console.log('delete id:',configId)
-
-                var configElement = this.closest('.col-md-4');
-
-                // 渐隐效果
-                configElement.style.transition = 'opacity 0.4s ease';
-                configElement.style.opacity = '0';
-
-                setTimeout(function() {
-                    var isDeleted = true;
-                    if (isDeleted){
-                        configElement.remove(); // 完全隐藏后从DOM中移除
-                        // 查找要删除的配置项在数组中的索引
-                        var index = mockConfigs.findIndex(config => config.id === configId);
-                        if (index > -1) {
-                            // 从数组中移除该配置项
-                            mockConfigs.splice(index, 1);
-
-                            // 重新渲染配置列表
-                            refreshConfigList();
-                        }
-                    } else {
-                        // 渐隐效果
-                        configElement.style.transition = 'opacity 0.4s ease';
-                        configElement.style.opacity = '1';
+        createApp({
+            data() {
+                return {
+                    relays: [],
+                    loading: true,
+                    showModal: false,
+                    editingRelay: null,
+                    form: {
+                        name: '',
+                        src: '',
+                        dst: '',
+                        udp: true
                     }
-                    
-                }, 400); // 与渐隐效果的持续时间匹配
-            });
-        });
+                };
+            },
+            mounted() {
+                this.loadRelays();
+            },
+            methods: {
+                async loadRelays() {
+                    try {
+                        this.loading = true;
+                        const response = await fetch('/api/relays');
+                        this.relays = await response.json();
+                    } catch (error) {
+                        console.error('Failed to load relays:', error);
+                        alert('Failed to load relays');
+                    } finally {
+                        this.loading = false;
+                    }
+                },
 
-    }
-    // 生成随机的 uuid
-    function newUUID() {
-        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-            var r = Math.random() * 16 | 0,
-                v = c == 'x' ? r : (r & 0x3 | 0x8);
-            return v.toString(16);
-    });
-}
-    
-    // 
-    function reloadData() {
-        fetch('/api/list.json')
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('Network response was not ok');
+                openCreate() {
+                    this.editingRelay = null;
+                    this.form = {
+                        name: '',
+                        src: '',
+                        dst: '',
+                        udp: true
+                    };
+                    this.showModal = true;
+                },
+
+                openEdit(relay) {
+                    this.editingRelay = relay;
+                    this.form = {
+                        name: relay.name,
+                        src: relay.src,
+                        dst: relay.dst,
+                        udp: relay.udp
+                    };
+                    this.showModal = true;
+                },
+
+                closeModal() {
+                    this.showModal = false;
+                    this.editingRelay = null;
+                },
+
+                async saveRelay() {
+                    if (!this.form.name || !this.form.src || !this.form.dst) {
+                        alert('Please fill in all fields');
+                        return;
+                    }
+
+                    try {
+                        if (this.editingRelay) {
+                            // Update
+                            await fetch(`/api/relays/${this.editingRelay.id}`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(this.form)
+                            });
+                        } else {
+                            // Create
+                            await fetch('/api/relays', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(this.form)
+                            });
+                        }
+
+                        this.closeModal();
+                        await this.loadRelays();
+                    } catch (error) {
+                        console.error('Failed to save relay:', error);
+                        alert('Failed to save relay');
+                    }
+                },
+
+                async deleteRelay(relay) {
+                    if (!confirm(`Delete relay "${relay.name}"?`)) {
+                        return;
+                    }
+
+                    try {
+                        await fetch(`/api/relays/${relay.id}`, {
+                            method: 'DELETE'
+                        });
+                        await this.loadRelays();
+                    } catch (error) {
+                        console.error('Failed to delete relay:', error);
+                        alert('Failed to delete relay');
+                    }
                 }
-                return response.json();
-            })
-            .then(data => {
-                // TODO 验证 data
-                mockConfigs = data;
-
-                // 重新渲染配置列表
-                refreshConfigList();
-
-                // 绑定事件处理函数
-                bindEditButtons();
-                bindDeleteButtons();
-            })
-            .catch(error => {
-                console.error('Fetch error:', error);
-            });
-    }
-
-    // end
+            }
+        }).mount('#app');
     </script>
-    
 </body>
 </html>
