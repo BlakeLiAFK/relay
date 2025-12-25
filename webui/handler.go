@@ -77,24 +77,22 @@ func (h *Handlers) Handle(action string, data map[string]interface{}, c *gin.Con
 
 	module, method := parts[0], parts[1]
 
-	// 检查是否需要 setup
-	if !model.IsSetupCompleted() && module != "setup" {
-		return APIResponse{Code: 1001, Msg: "need_setup"}
+	// 无需认证的接口
+	noAuthRequired := map[string]bool{
+		"setup.status":   true,
+		"setup.init":     true,
+		"system.login":   true,
+		"system.version": true,
 	}
 
-	// 检查登录状态 (除了 setup 和 login)
-	if module != "setup" && !(module == "system" && method == "login") {
+	// 检查是否需要认证
+	if !noAuthRequired[action] {
 		token := c.GetHeader("Authorization")
 		if token == "" {
-			// 未提供 token
-			if model.IsSetupCompleted() {
-				return Error(401, "未登录")
-			}
-		} else {
-			// 提供了 token，验证是否有效且未过期
-			if _, err := model.GetSession(token); err != nil {
-				return Error(401, "登录已过期")
-			}
+			return Error(401, "未登录")
+		}
+		if _, err := model.GetSession(token); err != nil {
+			return Error(401, "登录已过期")
 		}
 	}
 
