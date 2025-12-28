@@ -52,7 +52,8 @@ func NewHandlers() *Handlers {
 		wsHub:    NewWSHub(),
 	}
 	go h.wsHub.Run()
-	go h.cleanupSessions() // 启动会话清理
+	go h.cleanupSessions()      // 启动会话清理
+	go h.cleanupLoginAttempts() // 启动登录尝试记录清理
 	return h
 }
 
@@ -63,6 +64,29 @@ func (h *Handlers) cleanupSessions() {
 	for range ticker.C {
 		if err := model.CleanExpiredSessions(); err != nil {
 			log.Printf("清理过期会话失败: %v", err)
+		}
+	}
+}
+
+// cleanupLoginAttempts 定期清理过期的登录尝试记录，防止内存泄漏
+func (h *Handlers) cleanupLoginAttempts() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		now := time.Now()
+		expireThreshold := lockDuration * 2 // 锁定时长的两倍后清理
+		cleaned := 0
+		loginAttempts.Range(func(key, value interface{}) bool {
+			attempt := value.(*loginAttempt)
+			// 如果锁定已过期且最后尝试时间超过阈值，则清理
+			if now.After(attempt.lockedUntil) && now.Sub(attempt.lastTry) > expireThreshold {
+				loginAttempts.Delete(key)
+				cleaned++
+			}
+			return true
+		})
+		if cleaned > 0 {
+			log.Printf("清理过期登录尝试记录: %d 条", cleaned)
 		}
 	}
 }
